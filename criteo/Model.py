@@ -5,32 +5,36 @@ import torch
 import torch.nn as nn
 
 
-# TODO: Experiment with different initializations
-# TODO: after that, a dense real-value feature vector is gener-
-#       ated, which is finally fed into the sigmoid function for CTR
-#       prediction: yDN N = σ(W |H|+1 · aH + b|H|+1), where |H|
-#       is the number of hidden layers.
 # https://arxiv.org/abs/1703.04247
 class DeepNet(nn.Module):
     def __init__(self, input_dim, num_layers, hidden_dim, device):
         super(DeepNet, self).__init__()
         self.l1 = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),  # TODO: Try out layer norm as well.
+            nn.Linear(input_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.Dropout(),
             nn.ReLU(),
         ).to(device)
+        nn.init.kaiming_uniform_(self.l1[0].weight, mode="fan_in", nonlinearity="relu")
 
-        self.layers = [
-            nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.BatchNorm1d(hidden_dim),  # TODO: Try out layer norm as well.
-                nn.Dropout(),
-                nn.ReLU(),
-            ).to(device)
-            for _ in range(num_layers)
-        ]
+        self.layers = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(hidden_dim, hidden_dim),
+                    nn.BatchNorm1d(hidden_dim),
+                    nn.Dropout(),
+                    nn.ReLU(),
+                ).to(device)
+                for _ in range(num_layers)
+            ]
+        )
+        for layer in self.layers:
+            nn.init.kaiming_uniform_(layer[0].weight, mode='fan_in', nonlinearity='relu')
+
         self.final_layer = nn.Linear(hidden_dim, 1).to(device)
+        nn.init.kaiming_uniform_(
+            self.final_layer.weight, mode="fan_in", nonlinearity="relu"
+        )
 
     def __call__(self, x):
         x = self.l1(x)
