@@ -43,7 +43,7 @@ class DeepNet(nn.Module):
 class DeepFM(nn.Module):
     # m: Number of feature fields
     # k: embedding size per feature field
-    def __init__(self, feature_sizes, k, device):
+    def __init__(self, feature_sizes, k, num_hidden_layers, hidden_dim, device):
         super(DeepFM, self).__init__()
         m = len(feature_sizes)
         self.feature_sizes = feature_sizes
@@ -62,9 +62,9 @@ class DeepFM(nn.Module):
 
         self.deep = DeepNet(
             input_dim=m * k,
-            num_layers=6,
-            hidden_dim=1024,
-            device=device
+            num_layers=num_hidden_layers,
+            hidden_dim=hidden_dim,
+            device=device,
         ).to(device)
 
     def __call__(self, x):
