@@ -26,7 +26,7 @@ def evaluate(net, loader, num_batches, acc_fn):
         net.eval()
         eval_accs = 0.0
         eval_losses = 0.0
-        for j, (inputs, labels) in enumerate(train_loader):
+        for j, (inputs, labels) in enumerate(loader):
             inputs = inputs.to(device)
             labels = labels.to(device)
             inputs[inputs == float("Inf")] = 0
@@ -36,7 +36,7 @@ def evaluate(net, loader, num_batches, acc_fn):
 
             eval_losses += loss.item()
             eval_accs += acc_fn(torch.sigmoid(logits), labels)
-            if j >= num_batches:
+            if j >= num_batches - 1:
                 break
         mean_eval_loss = eval_losses / num_batches
         mean_eval_acc = eval_accs / num_batches
@@ -45,9 +45,16 @@ def evaluate(net, loader, num_batches, acc_fn):
 
 
 def train(
-    net, optimizer, criterion, acc_fn, epochs, train_loader, val_loader, test_loader
+    net,
+    optimizer,
+    criterion,
+    acc_fn,
+    epochs,
+    train_loader,
+    val_loader,
+    test_loader,
+    log_freq=250,
 ):
-    log_freq = 250
     net.train()
     for e in range(epochs):
         running_loss = 0.0
@@ -68,7 +75,10 @@ def train(
             running_loss += loss.item()
 
             if i % log_freq == log_freq - 1:
-                mean_eval_loss, mean_eval_acc = evaluate(net, val_loader, 350, acc_fn)
+                num_val_batches = min(300, len(val_loader))
+                mean_eval_loss, mean_eval_acc = evaluate(
+                    net, val_loader, num_val_batches, acc_fn
+                )
                 mean_loss, mean_acc = running_loss / log_freq, accs / log_freq
 
                 taken = round(time.time() - s, 3)
@@ -85,7 +95,8 @@ def train(
                 s = time.time()
                 net.train()
 
-    return evaluate(net, test_loader, 9999999, acc_fn)
+    num_test_batches = len(test_loader)
+    return evaluate(net, test_loader, num_test_batches, acc_fn)
 
 
 def accuracy(predictions, truth):
@@ -97,7 +108,7 @@ if __name__ == "__main__":
 
     bs = 1024
     train_dset = CriteoDataset("dataset/train.txt")
-    train_loader = DataLoader(train_dset, batch_size=bs, shuffle=False)
+    train_loader = DataLoader(train_dset, batch_size=bs, shuffle=True)
     val_loader = DataLoader(
         CriteoDataset("dataset/val.txt"), batch_size=bs, shuffle=False
     )
@@ -127,7 +138,7 @@ if __name__ == "__main__":
     optimizer = Adam(net.parameters(), lr=lr)
     criterion = torch.nn.BCEWithLogitsLoss()
 
-    mean_eval_loss, mean_eval_acc = train(
+    test_loss, test_acc = train(
         net=net,
         optimizer=optimizer,
         criterion=criterion,
@@ -136,7 +147,12 @@ if __name__ == "__main__":
         train_loader=train_loader,
         val_loader=val_loader,
         test_loader=test_loader,
+        log_freq=250,
     )
 
-    print(mean_eval_acc)
-    print(mean_eval_loss)
+    print(f"Final test loss: {test_loss:.2f}, final test accuracy: {test_acc:.2f}")
+
+    writer.add_scalar("Loss/test", test_loss)
+    writer.add_scalar("Accuracy/test", test_acc)
+
+    writer.close()
