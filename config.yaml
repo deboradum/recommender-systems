@@ -1,0 +1,17 @@
+training:
+  bs: 1024
+  epochs: 1
+  log_freq: 100
+  lr: 0.0005
+  seed: 12412421
+network:
+  deepfm:
+    hidden_dim: 128
+    k: 256
+    num_hidden_layers: 3
+  transformer:
+    embed_dim: 256
+    k: 256
+    num_heads: 4
+    num_transformer_blocks: 4
+    widening_factor: 4

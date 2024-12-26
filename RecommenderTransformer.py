@@ -42,10 +42,8 @@ class FeedForward_2(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, num_heads, embed_dim, num_ff_layers=2, widening_factor=4):
+    def __init__(self, num_heads, embed_dim, widening_factor=4):
         super(TransformerBlock, self).__init__()
-        # TODO: assert num heads and embedding dim line up
-        # assert
         self.attention = nn.MultiheadAttention(
             embed_dim=embed_dim,
             num_heads=num_heads,
@@ -54,10 +52,8 @@ class TransformerBlock(nn.Module):
         self.norm1 = nn.LayerNorm(embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
 
-        # self.ff = FeedForward(num_ff_layers, embed_dim, 4)
         self.ff = FeedForward_2(embed_dim, 4)
 
-    #
     def forward(self, x):
         h = torch.transpose(self.norm1(x), 0, 1)
         h, _ = self.attention(h, h, h)
@@ -72,7 +68,12 @@ class TransformerBlock(nn.Module):
 
 class RecommenderTransformer(nn.Module):
     def __init__(
-        self, feature_sizes, num_transformer_blocks, num_heads, embed_dim, num_ff_layers
+        self,
+        feature_sizes,
+        num_transformer_blocks,
+        num_heads,
+        embed_dim,
+        widening_factor,
     ):
         super(RecommenderTransformer, self).__init__()
         self.feature_sizes = feature_sizes
@@ -87,8 +88,7 @@ class RecommenderTransformer(nn.Module):
             TransformerBlock(
                 num_heads=num_heads,
                 embed_dim=embed_dim,
-                num_ff_layers=num_ff_layers,
-                widening_factor=4,
+                widening_factor=widening_factor,
             )
             for _ in range(num_transformer_blocks)
         )
@@ -98,7 +98,6 @@ class RecommenderTransformer(nn.Module):
     def forward(self, x):
         # Positional encoding not neccesary since features do not contain relative positional information
 
-        # TODO: Find smart way to encode each sequence correctly
         x = torch.stack([
             embed_layer(x[:, i].long())
             for i, embed_layer in enumerate(self.embeddings)

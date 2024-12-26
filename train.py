@@ -1,3 +1,4 @@
+import yaml
 import time
 import torch
 import argparse
@@ -75,7 +76,7 @@ def train(
             running_loss += loss.item()
 
             if i % log_freq == log_freq - 1:
-                num_val_batches = min(500, len(val_loader))
+                num_val_batches = min(log_freq, len(val_loader))
                 mean_eval_loss, mean_eval_acc = evaluate(
                     net, val_loader, num_val_batches, acc_fn
                 )
@@ -103,67 +104,134 @@ def accuracy(predictions, truth):
     return (torch.where(predictions > 0.5, 1, 0) == truth).float().mean().item()
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Parse command-line arguments.")
+    parser.add_argument(
+        "-n", "--net", type=str, required=True, choices=["deepfm", "transformer"]
+    )
+    parser.add_argument(
+        "-d",
+        "--dataset",
+        type=str,
+        required=True,
+        choices=["criteo", "movielens", "avazu"],
+    )
+    parser.add_argument("-c", "--config", type=str, default="config.yaml")
 
-# def parse_args():
-#     parser = argparse.ArgumentParser(description="Parse command-line arguments.")
+    return parser.parse_args()
 
-#     return args
+
+def get_net(net, feature_sizes, config):
+    if net == "deepfm":
+        net = DeepFM(
+            feature_sizes=feature_sizes,
+            k=config["network"][net]["k"],
+            num_hidden_layers=config["network"][net]["num_hidden_layers"],
+            hidden_dim=config["network"][net]["hidden_dim"],
+            device=device,
+        ).to(device)
+    elif net == "transformer":
+        net = RecommenderTransformer(
+            feature_sizes=feature_sizes,
+            num_transformer_blocks=config["network"][net]["num_transformer_blocks"],
+            num_heads=config["network"][net]["num_heads"],
+            embed_dim=config["network"][net]["k"],
+            widening_factor=config["network"][net]["widening_factor"],
+        )
+    else:
+        raise NotImplementedError(f"Net {net} not yet supported")
+
+    return net
+
+
+def get_loaders(dset, bs):
+    if dset == "criteo":
+        train_loader = DataLoader(
+            CriteoDataset("criteo/dataset/train.txt"), batch_size=bs, shuffle=True
+        )
+        val_loader = DataLoader(
+            CriteoDataset("criteo/dataset/val.txt"), batch_size=bs, shuffle=False
+        )
+        test_loader = DataLoader(
+            CriteoDataset("criteo/dataset/test.txt"), batch_size=bs, shuffle=False
+        )
+    elif dset == "movielens":
+        train_loader = DataLoader(
+            MovieLens20MDataset("movielens/ml-20m/train.txt"), batch_size=bs, shuffle=True
+        )
+        val_loader = DataLoader(
+            MovieLens20MDataset("movielens/ml-20m/val.txt"), batch_size=bs, shuffle=False
+        )
+        test_loader = DataLoader(
+            MovieLens20MDataset("movielens/ml-20m/test.txt"), batch_size=bs, shuffle=False
+        )
+    elif dset == "avazu":
+        train_loader = DataLoader(
+            AvazuDataset("avazu/avazu-ctr-prediction/train.txt"),
+            batch_size=bs,
+            shuffle=True,
+        )
+        val_loader = DataLoader(
+            AvazuDataset("avazu/avazu-ctr-prediction/val.txt"),
+            batch_size=bs,
+            shuffle=False,
+        )
+        test_loader = DataLoader(
+            AvazuDataset("avazu/avazu-ctr-prediction/test.txt"),
+            batch_size=bs,
+            shuffle=False,
+        )
+    return train_loader, val_loader, test_loader
+
+
+def get_config(path):
+    with open(path, "r") as file:
+        config = yaml.safe_load(file)
+    return config
 
 
 if __name__ == "__main__":
-    torch.manual_seed(1246211)
+    args = parse_args()
+    conf = get_config(args.config)
+    train_loader, val_loader, test_loader = get_loaders(
+        args.dataset, conf["training"]["bs"]
+    )
+    net = get_net(args.net, list(train_loader.dataset.field_dims), conf).to(device)
 
-    learning_rates = [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]
-    for lr in learning_rates:
-        writer = SummaryWriter(log_dir=f"runs/lr_{lr}")
+    # Hyper params for in tensor board logging
+    hparams = {
+        "seed": conf["training"]["seed"],
+        "batch_size": conf["training"]["bs"],
+        "lr": conf["training"]["lr"],
+        "network": args.net,
+    }
+    network_hparams = conf["network"].get(args.net, {})
+    hparams.update(
+        {f"{args.net}_{key}": value for key, value in network_hparams.items()}
+    )
 
-        bs = 512
-        train_dset = CriteoDataset("dataset/train.txt")
-        train_loader = DataLoader(train_dset, batch_size=bs, shuffle=True)
-        val_loader = DataLoader(
-            CriteoDataset("dataset/val.txt"), batch_size=bs, shuffle=False
-        )
-        test_loader = DataLoader(
-            CriteoDataset("dataset/test.txt"), batch_size=bs, shuffle=False
-        )
+    torch.manual_seed(hparams["seed"])
+    lr = hparams["lr"]
+    optimizer = Adam(net.parameters(), lr=lr)
+    criterion = torch.nn.BCEWithLogitsLoss()
 
-        k = 512
+    writer = SummaryWriter(log_dir=f"runs/{args.dataset}/")
 
-        # num_hidden_layers = 4
-        # hidden_dim = 4096
-        # net = DeepFM(
-        #     feature_sizes=list(train_dset.field_dims),
-        #     k=k,
-        #     num_hidden_layers=num_hidden_layers,
-        #     hidden_dim=hidden_dim,
-        #     device=device,
-        # ).to(device)
-        net = RecommenderTransformer(
-            feature_sizes=list(train_dset.field_dims),
-            num_transformer_blocks=4,
-            num_heads=4,
-            embed_dim=k,
-            num_ff_layers=2,
-        ).to(device)
+    test_loss, test_acc = train(
+        net=net,
+        optimizer=optimizer,
+        criterion=criterion,
+        acc_fn=accuracy,
+        epochs=conf["training"]["epochs"],
+        train_loader=train_loader,
+        val_loader=val_loader,
+        test_loader=test_loader,
+        log_freq=conf["training"]["log_freq"],
+    )
 
-        optimizer = Adam(net.parameters(), lr=lr)
-        criterion = torch.nn.BCEWithLogitsLoss()
+    writer.add_scalar("Loss/test", test_loss)
+    writer.add_scalar("Accuracy/test", test_acc)
 
-        test_loss, test_acc = train(
-            net=net,
-            optimizer=optimizer,
-            criterion=criterion,
-            acc_fn=accuracy,
-            epochs=1,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            test_loader=test_loader,
-            log_freq=500,
-        )
+    writer.add_hparams(hparams, {"test_loss": test_loss, "test_acc": test_acc})
 
-        print(f"Final test loss: {test_loss:.2f}, final test accuracy: {test_acc:.2f}")
-
-        writer.add_scalar("Loss/test", test_loss)
-        writer.add_scalar("Accuracy/test", test_acc)
-
-        writer.close()
+    writer.close()
