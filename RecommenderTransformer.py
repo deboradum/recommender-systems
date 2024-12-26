@@ -1,9 +1,6 @@
 import torch
 import torch.nn as nn
 
-from dataloader import CriteoDataset
-from torch.utils.data import DataLoader
-
 class FeedForward(nn.Module):
     def __init__(self, num_layers, embed_dim, widening_factor):
         super(FeedForward, self).__init__()
@@ -113,32 +110,3 @@ class RecommenderTransformer(nn.Module):
         x = self.final_layer(x)  # (B, D) > (B, 1)
 
         return x
-
-if __name__ == "__main__":
-    torch.manual_seed(1246211)
-
-    bs = 2
-    train_dset = CriteoDataset("dataset/train.txt")
-    train_loader = DataLoader(train_dset, batch_size=bs, shuffle=False)
-    val_loader = DataLoader(
-        CriteoDataset("dataset/val.txt"), batch_size=bs, shuffle=False
-    )
-    test_loader = DataLoader(
-        CriteoDataset("dataset/test.txt"), batch_size=bs, shuffle=False
-    )
-
-    k = 128
-    num_hidden_layers = 4
-    hidden_dim = 4096
-    net = RecommenderTransformer(
-        feature_sizes=list(train_dset.field_dims),
-        num_transformer_blocks=4,
-        num_heads=4,
-        embed_dim=k,
-        num_ff_layers=2,
-    )
-    for i, (inputs, labels) in enumerate(train_loader):
-        inputs[inputs == float("Inf")] = 0
-        logits = net(inputs)
-        loss = torch.binary_cross_entropy_with_logits(logits, labels)
-        print(loss.item())

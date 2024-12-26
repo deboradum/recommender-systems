@@ -1,20 +1,20 @@
-import os
-import json
 import time
 import torch
+import argparse
 
 from DeepFM import DeepFM
 from RecommenderTransformer import RecommenderTransformer
-from dataloader import CriteoDataset
+from criteo.dataloader import CriteoDataset
+from movielens.dataloader import MovieLens20MDataset
+from avazu.dataloader import AvazuDataset
 
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-writer = SummaryWriter()
 device = torch.device(
     "mps"
-    if torch.backends.mps.is_built()
+    if torch.backends.mps.is_available()
     else "cuda"
     if torch.cuda.is_available()
     else "cpu"
@@ -75,7 +75,7 @@ def train(
             running_loss += loss.item()
 
             if i % log_freq == log_freq - 1:
-                num_val_batches = min(300, len(val_loader))
+                num_val_batches = min(500, len(val_loader))
                 mean_eval_loss, mean_eval_acc = evaluate(
                     net, val_loader, num_val_batches, acc_fn
                 )
@@ -95,7 +95,7 @@ def train(
                 s = time.time()
                 net.train()
 
-    num_test_batches = len(test_loader)
+    num_test_batches = min(2000, len(test_loader))
     return evaluate(net, test_loader, num_test_batches, acc_fn)
 
 
@@ -103,56 +103,67 @@ def accuracy(predictions, truth):
     return (torch.where(predictions > 0.5, 1, 0) == truth).float().mean().item()
 
 
+
+# def parse_args():
+#     parser = argparse.ArgumentParser(description="Parse command-line arguments.")
+
+#     return args
+
+
 if __name__ == "__main__":
     torch.manual_seed(1246211)
 
-    bs = 1024
-    train_dset = CriteoDataset("dataset/train.txt")
-    train_loader = DataLoader(train_dset, batch_size=bs, shuffle=True)
-    val_loader = DataLoader(
-        CriteoDataset("dataset/val.txt"), batch_size=bs, shuffle=False
-    )
-    test_loader = DataLoader(
-        CriteoDataset("dataset/test.txt"), batch_size=bs, shuffle=False
-    )
+    learning_rates = [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]
+    for lr in learning_rates:
+        writer = SummaryWriter(log_dir=f"runs/lr_{lr}")
 
-    k = 128
-    num_hidden_layers = 4
-    hidden_dim = 4096
-    # net = DeepFM(
-    #     feature_sizes=list(train_dset.field_dims),
-    #     k=k,
-    #     num_hidden_layers=num_hidden_layers,
-    #     hidden_dim=hidden_dim,
-    #     device=device,
-    # ).to(device)
-    net = RecommenderTransformer(
-        feature_sizes=list(train_dset.field_dims),
-        num_transformer_blocks=4,
-        num_heads=4,
-        embed_dim=k,
-        num_ff_layers=2,
-    ).to(device)
+        bs = 512
+        train_dset = CriteoDataset("dataset/train.txt")
+        train_loader = DataLoader(train_dset, batch_size=bs, shuffle=True)
+        val_loader = DataLoader(
+            CriteoDataset("dataset/val.txt"), batch_size=bs, shuffle=False
+        )
+        test_loader = DataLoader(
+            CriteoDataset("dataset/test.txt"), batch_size=bs, shuffle=False
+        )
 
-    lr = 0.005
-    optimizer = Adam(net.parameters(), lr=lr)
-    criterion = torch.nn.BCEWithLogitsLoss()
+        k = 512
 
-    test_loss, test_acc = train(
-        net=net,
-        optimizer=optimizer,
-        criterion=criterion,
-        acc_fn=accuracy,
-        epochs=3,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        test_loader=test_loader,
-        log_freq=250,
-    )
+        # num_hidden_layers = 4
+        # hidden_dim = 4096
+        # net = DeepFM(
+        #     feature_sizes=list(train_dset.field_dims),
+        #     k=k,
+        #     num_hidden_layers=num_hidden_layers,
+        #     hidden_dim=hidden_dim,
+        #     device=device,
+        # ).to(device)
+        net = RecommenderTransformer(
+            feature_sizes=list(train_dset.field_dims),
+            num_transformer_blocks=4,
+            num_heads=4,
+            embed_dim=k,
+            num_ff_layers=2,
+        ).to(device)
 
-    print(f"Final test loss: {test_loss:.2f}, final test accuracy: {test_acc:.2f}")
+        optimizer = Adam(net.parameters(), lr=lr)
+        criterion = torch.nn.BCEWithLogitsLoss()
 
-    writer.add_scalar("Loss/test", test_loss)
-    writer.add_scalar("Accuracy/test", test_acc)
+        test_loss, test_acc = train(
+            net=net,
+            optimizer=optimizer,
+            criterion=criterion,
+            acc_fn=accuracy,
+            epochs=1,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            test_loader=test_loader,
+            log_freq=500,
+        )
 
-    writer.close()
+        print(f"Final test loss: {test_loss:.2f}, final test accuracy: {test_acc:.2f}")
+
+        writer.add_scalar("Loss/test", test_loss)
+        writer.add_scalar("Accuracy/test", test_acc)
+
+        writer.close()
