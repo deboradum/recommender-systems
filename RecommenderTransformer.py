@@ -108,4 +108,4 @@ class RecommenderTransformer(nn.Module):
         x = self.norm(x)
         x = self.final_layer(x)  # (B, D) > (B, 1)
 
-        return x
+        return x.view(-1)

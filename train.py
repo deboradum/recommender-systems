@@ -35,7 +35,7 @@ def evaluate(net, loader, num_batches, acc_fn):
             inputs[inputs == float("Inf")] = 0
 
             logits = net(inputs)
-            loss = criterion(logits.view(-1), labels)
+            loss = criterion(logits, labels)
 
             eval_losses += loss.item()
             eval_accs += acc_fn(torch.sigmoid(logits), labels)
@@ -74,7 +74,7 @@ def train(
 
             optimizer.zero_grad()
             logits = net(inputs)
-            loss = criterion(logits.view(-1), labels)
+            loss = criterion(logits, labels)
             loss.backward()
             optimizer.step()
 
@@ -111,11 +111,9 @@ def train(
                     if early_stopping_counter >= patience:
                         print(f"Early stopping at iteration {tb_x} with eval loss {best_eval_loss}")
                         torch.save(best_state_dict, save_path)
-                        best_model = torch.load(
-                            save_path,
-                            map_location=device,
-                            weights_only=True,
-                        )
+                        best_model = net
+                        best_model.load_state_dict(torch.load(save_path, map_location=device))
+                        best_model = best_model.to(device)
 
                         num_test_batches = min(2000, len(test_loader))
                         return evaluate(best_model, test_loader, num_test_batches, acc_fn)
