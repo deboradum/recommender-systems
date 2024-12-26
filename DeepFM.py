@@ -64,6 +64,8 @@ class DeepFM(nn.Module):
 
         self.bias = nn.Parameter(torch.Tensor(1).to(device))
 
+        self.final_layer = nn.Linear(2, 1)
+
         self.deep = DeepNet(
             input_dim=m * k,
             num_layers=num_hidden_layers,
@@ -81,7 +83,7 @@ class DeepFM(nn.Module):
         y_fm = self.fm(x, dense_x_o2_list)
         y_dnn = self.deep(dense_x_o2).sum(dim=1)
 
-        return y_fm + y_dnn
+        return self.final_layer(torch.stack([y_fm, y_dnn], dim=1)).view(-1)
 
     # https://www.ismll.uni-hildesheim.de/pub/pdfs/Rendle2010FM.pdf
     def fm(self, x, dense_x_o2_list):
