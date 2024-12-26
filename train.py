@@ -1,6 +1,8 @@
 import yaml
 import time
 import torch
+import random
+import string
 import argparse
 
 from DeepFM import DeepFM
@@ -54,12 +56,16 @@ def train(
     train_loader,
     val_loader,
     test_loader,
+    patience=10,
     log_freq=250,
+    save_path="best_model.pt"
 ):
     net.train()
     for e in range(epochs):
         running_loss = 0.0
         accs = 0.0
+        best_eval_loss = 99999
+        early_stopping_counter = 0
         s = time.time()
         for i, (inputs, labels) in enumerate(train_loader):
             inputs = inputs.to(device)
@@ -96,6 +102,25 @@ def train(
                 s = time.time()
                 net.train()
 
+                if mean_eval_loss < best_eval_loss:
+                    best_eval_loss = mean_eval_loss
+                    early_stopping_counter = 0
+                    best_state_dict = net.state_dict()
+                else:
+                    early_stopping_counter += 1
+                    if early_stopping_counter >= patience:
+                        print(f"Early stopping at iteration {tb_x} with eval loss {best_eval_loss}")
+                        torch.save(best_state_dict, save_path)
+                        best_model = torch.load(
+                            save_path,
+                            map_location=device,
+                            weights_only=True,
+                        )
+
+                        num_test_batches = min(2000, len(test_loader))
+                        return evaluate(best_model, test_loader, num_test_batches, acc_fn)
+
+    torch.save(net.state_dict(), save_path)
     num_test_batches = min(2000, len(test_loader))
     return evaluate(net, test_loader, num_test_batches, acc_fn)
 
@@ -203,6 +228,7 @@ if __name__ == "__main__":
         "seed": conf["training"]["seed"],
         "batch_size": conf["training"]["bs"],
         "lr": conf["training"]["lr"],
+        "patience": conf["training"]["patience"],
         "network": args.net,
     }
     network_hparams = conf["network"].get(args.net, {})
@@ -215,7 +241,10 @@ if __name__ == "__main__":
     optimizer = Adam(net.parameters(), lr=lr)
     criterion = torch.nn.BCEWithLogitsLoss()
 
-    writer = SummaryWriter(log_dir=f"runs/{args.dataset}/")
+
+    random_suffix = "".join(random.choices(string.ascii_letters + string.digits, k=6))
+    run_name = f"{args.dataset}_{args.net}_{random_suffix}"
+    writer = SummaryWriter(log_dir=f"runs/{run_name}")
 
     test_loss, test_acc = train(
         net=net,
@@ -226,7 +255,9 @@ if __name__ == "__main__":
         train_loader=train_loader,
         val_loader=val_loader,
         test_loader=test_loader,
+        patience=hparams["patience"],
         log_freq=conf["training"]["log_freq"],
+        save_path="best_model.pt",
     )
 
     writer.add_scalar("Loss/test", test_loss)
