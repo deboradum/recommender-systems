@@ -36,7 +36,7 @@ class DeepNet(nn.Module):
             self.final_layer.weight, mode="fan_in", nonlinearity="relu"
         )
 
-    def __call__(self, x):
+    def forward(self, x):
         x = self.l1(x)
         for layer in self.layers:
             x = layer(x)
@@ -73,7 +73,7 @@ class DeepFM(nn.Module):
             device=device,
         ).to(device)
 
-    def __call__(self, x):
+    def forward(self, x):
         dense_x_o2_list = [
             embed_layer(x[:, i].long())
             for i, embed_layer in enumerate(self.o2_embeddings)
