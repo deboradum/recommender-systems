@@ -233,6 +233,7 @@ if __name__ == "__main__":
     hparams.update(
         {f"{args.net}_{key}": value for key, value in network_hparams.items()}
     )
+    print("Hyperparameters:", hparams)
 
     torch.manual_seed(hparams["seed"])
     lr = hparams["lr"]
@@ -257,6 +258,8 @@ if __name__ == "__main__":
         log_freq=conf["training"]["log_freq"],
         save_path="best_model.pt",
     )
+
+    print(f"Test loss: {test_loss} | Test accuracy: {test_acc}")
 
     writer.add_scalar("Loss/test", test_loss)
     writer.add_scalar("Accuracy/test", test_acc)

@@ -1,8 +1,11 @@
 .DS_Store
 
 *.txt
+*.pt
+*.yaml
 
 __pycache__/
 .criteo/
+.criteo_inbalanced/
 .avazu/
 runs/
