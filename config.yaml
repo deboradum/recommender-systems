@@ -1,9 +1,9 @@
 training:
-  bs: 1024
+  bs: 512
   epochs: 1
-  log_freq: 100
+  log_freq: 200
   lr: 0.0005
-  patience: 10
+  patience: 5
   seed: 12412421
 network:
   deepfm:
@@ -11,8 +11,12 @@ network:
     k: 256
     num_hidden_layers: 3
   transformer:
-    embed_dim: 256
     k: 256
-    num_heads: 4
+    num_heads: 8
     num_transformer_blocks: 4
+    widening_factor: 4
+  transfm:
+    k: 256
+    num_transformer_blocks: 4
+    num_heads: 4
     widening_factor: 4

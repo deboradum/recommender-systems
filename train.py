@@ -7,6 +7,7 @@ import argparse
 
 from DeepFM import DeepFM
 from RecommenderTransformer import RecommenderTransformer
+from TransFM import TransFM
 from criteo.dataloader import CriteoDataset
 from movielens.dataloader import MovieLens20MDataset
 from avazu.dataloader import AvazuDataset
@@ -130,7 +131,7 @@ def accuracy(predictions, truth):
 def parse_args():
     parser = argparse.ArgumentParser(description="Parse command-line arguments.")
     parser.add_argument(
-        "-n", "--net", type=str, required=True, choices=["deepfm", "transformer"]
+        "-n", "--net", type=str, required=True, choices=["deepfm", "transformer", "transfm"]
     )
     parser.add_argument(
         "-d",
@@ -160,7 +161,16 @@ def get_net(net, feature_sizes, config):
             num_heads=config["network"][net]["num_heads"],
             embed_dim=config["network"][net]["k"],
             widening_factor=config["network"][net]["widening_factor"],
-        )
+        ).to(device)
+    elif net == "transfm":
+        net = TransFM(
+            feature_sizes=feature_sizes,
+            k=config["network"][net]["k"],
+            num_transformer_blocks=config["network"][net]["num_transformer_blocks"],
+            num_heads=config["network"][net]["num_heads"],
+            widening_factor=config["network"][net]["widening_factor"],
+            device=device,
+        ).to(device)
     else:
         raise NotImplementedError(f"Net {net} not yet supported")
 
