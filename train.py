@@ -15,6 +15,7 @@ from avazu.dataloader import AvazuDataset
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from torchmetrics.classification import BinaryAUROC
 
 device = torch.device(
     "mps"
@@ -25,27 +26,32 @@ device = torch.device(
 )
 
 
-def evaluate(net, loader, num_batches, acc_fn):
+def evaluate(net, loader, num_batches, acc_fn, auc_fn):
     with torch.no_grad():
         net.eval()
         eval_accs = 0.0
         eval_losses = 0.0
+        running_auc = 0.0
         for j, (inputs, labels) in enumerate(loader):
             inputs = inputs.to(device)
             labels = labels.to(device)
             inputs[inputs == float("Inf")] = 0
 
             logits = net(inputs)
+            preds = torch.sigmoid(logits)
             loss = criterion(logits, labels)
 
             eval_losses += loss.item()
-            eval_accs += acc_fn(torch.sigmoid(logits), labels)
+            eval_accs += acc_fn(preds, labels)
+            running_auc += auc_fn(preds, labels)
+
             if j >= num_batches - 1:
                 break
         mean_eval_loss = eval_losses / num_batches
         mean_eval_acc = eval_accs / num_batches
+        mean_auc = running_auc / num_batches
 
-    return mean_eval_loss, mean_eval_acc
+    return mean_eval_loss, mean_eval_acc, mean_auc
 
 
 def train(
@@ -53,18 +59,20 @@ def train(
     optimizer,
     criterion,
     acc_fn,
+    auc_fn,
     epochs,
     train_loader,
     val_loader,
     test_loader,
     patience=10,
     log_freq=250,
-    save_path="best_model.pt"
+    save_path="best_model.pt",
 ):
     net.train()
     for e in range(epochs):
         running_loss = 0.0
         accs = 0.0
+        aucs = 0.0
         best_eval_loss = 99999
         early_stopping_counter = 0
         s = time.time()
@@ -79,27 +87,36 @@ def train(
             loss.backward()
             optimizer.step()
 
-            accs += acc_fn(torch.sigmoid(logits), labels)
+            preds = torch.sigmoid(logits)
+            accs += acc_fn(preds, labels)
+            aucs += auc_fn(preds, labels)
             running_loss += loss.item()
 
             if i % log_freq == log_freq - 1:
                 num_val_batches = min(log_freq, len(val_loader))
-                mean_eval_loss, mean_eval_acc = evaluate(
-                    net, val_loader, num_val_batches, acc_fn
+                mean_eval_loss, mean_eval_acc, mean_eval_auc = evaluate(
+                    net, val_loader, num_val_batches, acc_fn, auc_fn
                 )
-                mean_loss, mean_acc = running_loss / log_freq, accs / log_freq
+                mean_loss, mean_acc, mean_auc = (
+                    running_loss / log_freq,
+                    accs / log_freq,
+                    aucs / log_freq,
+                )
 
                 taken = round(time.time() - s, 3)
                 tb_x = e * len(train_loader) + i + 1
                 print(
-                    f"iter {tb_x} | train loss: {mean_loss} | train acc: {mean_acc} | eval loss: {mean_eval_loss} | eval acc: {mean_eval_acc} | Took {taken}s"
+                    f"iter {tb_x} | train loss: {mean_loss} | train acc: {mean_acc} | train auc: {mean_auc} | eval loss: {mean_eval_loss} | eval acc: {mean_eval_acc} | eval auc: {mean_eval_auc} | Took {taken}s"
                 )
                 writer.add_scalar("Loss/train", mean_loss, tb_x)
                 writer.add_scalar("Accuracy/train", mean_acc, tb_x)
+                writer.add_scalar("AUC/train", mean_auc, tb_x)
                 writer.add_scalar("Loss/val", mean_eval_loss, tb_x)
                 writer.add_scalar("Accuracy/val", mean_eval_acc, tb_x)
+                writer.add_scalar("AUC/val", mean_eval_auc, tb_x)
                 running_loss = 0.0
                 accs = 0.0
+                aucs = 0.0
                 s = time.time()
                 net.train()
 
@@ -110,18 +127,24 @@ def train(
                 else:
                     early_stopping_counter += 1
                     if early_stopping_counter >= patience:
-                        print(f"Early stopping at iteration {tb_x} with eval loss {best_eval_loss}")
+                        print(
+                            f"Early stopping at iteration {tb_x} with eval loss {best_eval_loss}"
+                        )
                         torch.save(best_state_dict, save_path)
                         best_model = net
-                        best_model.load_state_dict(torch.load(save_path, map_location=device))
+                        best_model.load_state_dict(
+                            torch.load(save_path, map_location=device)
+                        )
                         best_model = best_model.to(device)
 
                         num_test_batches = min(2000, len(test_loader))
-                        return evaluate(best_model, test_loader, num_test_batches, acc_fn)
+                        return evaluate(
+                            best_model, test_loader, num_test_batches, acc_fn, auc_fn
+                        )
 
     torch.save(net.state_dict(), save_path)
     num_test_batches = min(2000, len(test_loader))
-    return evaluate(net, test_loader, num_test_batches, acc_fn)
+    return evaluate(net, test_loader, num_test_batches, acc_fn, auc_fn)
 
 
 def accuracy(predictions, truth):
@@ -249,17 +272,18 @@ if __name__ == "__main__":
     lr = hparams["lr"]
     optimizer = Adam(net.parameters(), lr=lr)
     criterion = torch.nn.BCEWithLogitsLoss()
-
+    auc_fn = BinaryAUROC().to(device)
 
     random_suffix = "".join(random.choices(string.ascii_letters + string.digits, k=6))
     run_name = f"{args.dataset}_{args.net}_{random_suffix}"
     writer = SummaryWriter(log_dir=f"runs/{run_name}")
 
-    test_loss, test_acc = train(
+    test_loss, test_acc, test_auc = train(
         net=net,
         optimizer=optimizer,
         criterion=criterion,
         acc_fn=accuracy,
+        auc_fn=auc_fn,
         epochs=conf["training"]["epochs"],
         train_loader=train_loader,
         val_loader=val_loader,
@@ -269,7 +293,7 @@ if __name__ == "__main__":
         save_path="best_model.pt",
     )
 
-    print(f"Test loss: {test_loss} | Test accuracy: {test_acc}")
+    print(f"Test loss: {test_loss} | Test accuracy: {test_acc} | Test AUC: {test_auc}")
 
     writer.add_scalar("Loss/test", test_loss)
     writer.add_scalar("Accuracy/test", test_acc)
