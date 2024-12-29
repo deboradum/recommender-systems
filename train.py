@@ -106,7 +106,7 @@ def train(
                 taken = round(time.time() - s, 3)
                 tb_x = e * len(train_loader) + i + 1
                 print(
-                    f"iter {tb_x} | train loss: {mean_loss} | train acc: {mean_acc} | train auc: {mean_auc} | eval loss: {mean_eval_loss} | eval acc: {mean_eval_acc} | eval auc: {mean_eval_auc} | Took {taken}s"
+                    f"iter {tb_x} | train loss: {mean_loss:.4f} | train acc: {mean_acc:.4f} | train auc: {mean_auc:.4f} | eval loss: {mean_eval_loss:.4f} | eval acc: {mean_eval_acc:.4f} | eval auc: {mean_eval_auc:.4f} | Took {taken:.2f}s"
                 )
                 writer.add_scalar("Loss/train", mean_loss, tb_x)
                 writer.add_scalar("Accuracy/train", mean_acc, tb_x)
@@ -128,7 +128,7 @@ def train(
                     early_stopping_counter += 1
                     if early_stopping_counter >= patience:
                         print(
-                            f"Early stopping at iteration {tb_x} with eval loss {best_eval_loss}"
+                            f"Early stopping at iteration {tb_x} with eval loss {best_eval_loss:.4f}"
                         )
                         torch.save(best_state_dict, save_path)
                         best_model = net
@@ -168,36 +168,39 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_net(net, feature_sizes, config):
-    if net == "deepfm":
+def get_net(net_name, feature_sizes, config):
+    if net_name == "deepfm":
         net = DeepFM(
             feature_sizes=feature_sizes,
-            k=config["network"][net]["k"],
-            num_hidden_layers=config["network"][net]["num_hidden_layers"],
-            hidden_dim=config["network"][net]["hidden_dim"],
+            k=config["network"][net_name]["k"],
+            num_hidden_layers=config["network"][net_name]["num_hidden_layers"],
+            hidden_dim=config["network"][net_name]["hidden_dim"],
             device=device,
         ).to(device)
-    elif net == "transformer":
+        suffix = f'{config["network"][net_name]["k"]}_{config["network"][net_name]["num_hidden_layers"]}_{config["network"][net_name]["hidden_dim"]}'
+    elif net_name == "transformer":
         net = RecommenderTransformer(
             feature_sizes=feature_sizes,
-            num_transformer_blocks=config["network"][net]["num_transformer_blocks"],
-            num_heads=config["network"][net]["num_heads"],
-            embed_dim=config["network"][net]["k"],
-            widening_factor=config["network"][net]["widening_factor"],
+            num_transformer_blocks=config["network"][net_name]["num_transformer_blocks"],
+            num_heads=config["network"][net_name]["num_heads"],
+            embed_dim=config["network"][net_name]["k"],
+            widening_factor=config["network"][net_name]["widening_factor"],
         ).to(device)
-    elif net == "transfm":
+        suffix = f'{config["network"][net_name]["num_transformer_blocks"]}_{config["network"][net_name]["num_heads"]}_{config["network"][net_name]["k"]}_{config["network"][net_name]["widening_factor"]}'
+    elif net_name == "transfm":
         net = TransFM(
             feature_sizes=feature_sizes,
-            k=config["network"][net]["k"],
-            num_transformer_blocks=config["network"][net]["num_transformer_blocks"],
-            num_heads=config["network"][net]["num_heads"],
-            widening_factor=config["network"][net]["widening_factor"],
+            k=config["network"][net_name]["k"],
+            num_transformer_blocks=config["network"][net_name]["num_transformer_blocks"],
+            num_heads=config["network"][net_name]["num_heads"],
+            widening_factor=config["network"][net_name]["widening_factor"],
             device=device,
         ).to(device)
+        suffix = f'{config["network"][net_name]["k"]}_{config["network"][net_name]["num_transformer_blocks"]}_{config["network"][net_name]["num_heads"]}_{config["network"][net_name]["widening_factor"]}'
     else:
         raise NotImplementedError(f"Net {net} not yet supported")
 
-    return net
+    return net, suffix
 
 
 def get_loaders(dset, bs):
@@ -252,7 +255,7 @@ if __name__ == "__main__":
     train_loader, val_loader, test_loader = get_loaders(
         args.dataset, conf["training"]["bs"]
     )
-    net = get_net(args.net, list(train_loader.dataset.field_dims), conf).to(device)
+    net, run_suffix = get_net(args.net, list(train_loader.dataset.field_dims), conf)
 
     # Hyper params for in tensor board logging
     hparams = {
@@ -274,8 +277,7 @@ if __name__ == "__main__":
     criterion = torch.nn.BCEWithLogitsLoss()
     auc_fn = BinaryAUROC().to(device)
 
-    random_suffix = "".join(random.choices(string.ascii_letters + string.digits, k=6))
-    run_name = f"{args.dataset}_{args.net}_{random_suffix}"
+    run_name = f"{args.dataset}_{args.net}_{run_suffix}"
     writer = SummaryWriter(log_dir=f"runs/{run_name}")
 
     test_loss, test_acc, test_auc = train(
@@ -293,7 +295,7 @@ if __name__ == "__main__":
         save_path="best_model.pt",
     )
 
-    print(f"Test loss: {test_loss} | Test accuracy: {test_acc} | Test AUC: {test_auc}")
+    print(f"Test loss: {test_loss:.4f} | Test accuracy: {test_acc:.4f} | Test AUC: {test_auc:.4f}")
 
     writer.add_scalar("Loss/test", test_loss)
     writer.add_scalar("Accuracy/test", test_acc)
