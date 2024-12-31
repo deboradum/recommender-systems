@@ -12,7 +12,7 @@ from criteo.dataloader import CriteoDataset
 from movielens.dataloader import MovieLens20MDataset
 from avazu.dataloader import AvazuDataset
 
-from torch.optim import Adam
+from torch.optim import Adam, AdamW, Adagrad
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.classification import BinaryAUROC
@@ -177,7 +177,7 @@ def get_net(net_name, feature_sizes, config):
             hidden_dim=config["network"][net_name]["hidden_dim"],
             device=device,
         ).to(device)
-        suffix = f'{config["network"][net_name]["k"]}_{config["network"][net_name]["num_hidden_layers"]}_{config["network"][net_name]["hidden_dim"]}'
+        suffix = f'{conf["training"]["seed"]}_{conf["training"]["lr"]}_{config["network"][net_name]["k"]}_{config["network"][net_name]["num_hidden_layers"]}_{config["network"][net_name]["hidden_dim"]}'
     elif net_name == "transformer":
         net = RecommenderTransformer(
             feature_sizes=feature_sizes,
@@ -186,7 +186,7 @@ def get_net(net_name, feature_sizes, config):
             embed_dim=config["network"][net_name]["k"],
             widening_factor=config["network"][net_name]["widening_factor"],
         ).to(device)
-        suffix = f'{config["network"][net_name]["num_transformer_blocks"]}_{config["network"][net_name]["num_heads"]}_{config["network"][net_name]["k"]}_{config["network"][net_name]["widening_factor"]}'
+        suffix = f'{conf["training"]["seed"]}_{conf["training"]["lr"]}_{config["network"][net_name]["num_transformer_blocks"]}_{config["network"][net_name]["num_heads"]}_{config["network"][net_name]["k"]}_{config["network"][net_name]["widening_factor"]}'
     elif net_name == "transfm":
         net = TransFM(
             feature_sizes=feature_sizes,
@@ -196,7 +196,7 @@ def get_net(net_name, feature_sizes, config):
             widening_factor=config["network"][net_name]["widening_factor"],
             device=device,
         ).to(device)
-        suffix = f'{config["network"][net_name]["k"]}_{config["network"][net_name]["num_transformer_blocks"]}_{config["network"][net_name]["num_heads"]}_{config["network"][net_name]["widening_factor"]}'
+        suffix = f'{conf["training"]["seed"]}_{conf["training"]["lr"]}_{config["network"][net_name]["k"]}_{config["network"][net_name]["num_transformer_blocks"]}_{config["network"][net_name]["num_heads"]}_{config["network"][net_name]["widening_factor"]}'
     else:
         raise NotImplementedError(f"Net {net} not yet supported")
 
@@ -274,6 +274,8 @@ if __name__ == "__main__":
     torch.manual_seed(hparams["seed"])
     lr = hparams["lr"]
     optimizer = Adam(net.parameters(), lr=lr)
+    # optimizer = AdamW(net.parameters(), lr=lr)
+    # optimizer = Adagrad(net.parameters(), lr=lr, lr_decay=0.1)
     criterion = torch.nn.BCEWithLogitsLoss()
     auc_fn = BinaryAUROC().to(device)
 
